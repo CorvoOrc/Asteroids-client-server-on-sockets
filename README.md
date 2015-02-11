@@ -23,4 +23,52 @@ Simplify Brain:
 - absent data base (if Brain was terminated, all data lost)
 - don`t use encrypt data
 
+Move of ship computes following:
+x += cos(angle) * c; ('+' forward, '-' - backward)
+y -= sin(angle) * c; ('-' forward, '+' - backward)
+, where c - coefficient (hardcoded and equal 1.0)
+
+Move of bullet equal move of ship:
+Move of ship computes following:
+x += cos(angle) * c1;
+y -= sin(angle) * c1;
+, where c1 - coefficient (hardcoded and equal 1.3)
+
+Move of asteroid computes following:
+x += cos(angle) * c; ('+' forward, '-' - backward)
+y -= sin(angle) * c; ('-' forward, '+' - backward)
+angle += min + (max - min) * Math.random()
+, where c - coefficient (hardcoded and equal 1.0)
+
+Nerve notification Brain about bullets and asteroids in when they hit in object:
+- for bullet: hit in ship, asteroid, border
+- for asteroid: hit in ship
+
+Collision computes use function hitTestObject():
+if(Object1.hitTestObject( Object2 ) {
+  trace("Is Hit");
+  
+  // Send Brian objects id;
+}
+
+All collision check in ENTER_FRAME event:
+this.addEventListener(Event.ENTER_FRAME, handleCollision)
+
+function handleCollision( e:Event ):void {
+  // ...
+  foreach(var bullet in ownBullets) {
+    //move bullet
+  }
+  
+  foreach(var bullet in alienBullets) {
+    //move bullet
+  }
+  
+  foreach(var asteroid in asteroids) {
+    //move asteroid
+  }
+  
+  // ...
+}
+
 Client on ActionScript3 have problem with Worker (analog Thread in C#, served for update data), sometimes he incorrectly closing.
