@@ -5,7 +5,7 @@ Asteroids net game. Server (his name is Brain) written on C#, client (I call his
 Client for testing is oriented on check work event function.
 Event functions:
 - newspace (appearence new space ship)
-- sendtoall (send simebody message to all nerve)
+- sendtoall (send message to all nerve)
 - poschange (user push on control buttom and move space ship)
 - angchange (user push on control buttom and turn space ship)
 - shot (user shot, appearence new bullet)
