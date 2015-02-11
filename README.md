@@ -38,11 +38,11 @@ Move of ship computes following:
 , where c1 - coefficient (hardcoded and equal 1.3)
 
 Move of asteroid computes following:
-- x += cos(angle) * c; ('+' forward, '-' - backward)
-- y -= sin(angle) * c; ('-' forward, '+' - backward)
+- x += cos(angle) * c2; ('+' forward, '-' - backward)
+- y -= sin(angle) * c2; ('-' forward, '+' - backward)
 - angle += min + (max - min) * Math.random()
 
-, where c - coefficient (hardcoded and equal 1.0)
+, where c2 - coefficient (hardcoded and equal 1.0)
 
 Nerve notification Brain about bullets and asteroids in when they hit in object:
 - for bullet: hit in ship, asteroid, border
@@ -64,25 +64,15 @@ this.addEventListener(Event.ENTER_FRAME, handleCollision)
 
 function handleCollision( e:Event ):void {
 
-  // ...
+    // ...
   
-  foreach(var bullet in ownBullets) {
-  
-    //move bullet
-    
-  }
+    foreach(var bullet in ownBullets) {/*move bullet*/}
 
-  foreach(var bullet in alienBullets) {
-    //move bullet
-  }
+    foreach(var bullet in alienBullets) {/*move bullet*/}
   
-  foreach(var asteroid in asteroids) {
+    foreach(var asteroid in asteroids) {/*move asteroid*/}
   
-    //move asteroid
-    
-  }
-  
-  // ...
+    // ...
   
 }
 
