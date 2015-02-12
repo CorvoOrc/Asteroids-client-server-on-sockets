@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -61,6 +61,16 @@ namespace Nerve
             this.health = new Health();
 
             ++lastId;
+        }
+
+        public void Move(Point position)
+        {
+            this.Pos = position;
+        }
+
+        public void Turn(Int32 angle)
+        {
+            this.Angle = angle;
         }
 
         public string ToString(String separator)
