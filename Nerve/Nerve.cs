@@ -1,3 +1,18 @@
+/*Steshenko Alexander*/
+
+/*
+Client for testing is oriented on check work event function. Event functions:
+
+- newspace (appearence new space ship)
+- sendtoall (send message to all nerve)
+- poschange (user push on control buttom and move space ship)
+- angchange (user push on control buttom and turn space ship)
+- shot (user shot, appearence new bullet)
+- hit (user hit in somebody object: another space ship, asteroid, border)
+- collision (user`s space ship collision with asteroid (in future with another space ship))
+- close (user terminated game and close session, need free space ship object and own bullets, also close sockets and streams)
+*/
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
