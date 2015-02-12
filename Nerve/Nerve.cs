@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,12 +12,12 @@ namespace Nerve
 {
     class Nerve
     {
-        World world = null;
-        Socket client = null;
-        static NetworkStream stream = null;
+        NerveSynchro synchro = null;
 
+        World world = null;
+
+        Socket client = null;
         Socket clientUpd = null;
-        static NetworkStream streamUpd = null;
 
         const Byte sendtoall = 1;
         const Byte poschange = 2;
@@ -31,11 +31,24 @@ namespace Nerve
 
         const int unused = 0; // Monitored on server side (by Brain)
        
-        const String separator = ">>";
+        String separator = ">>";
         String logPath = "logfile";
 
         public Nerve()
         {
+            InitNerve();
+        }
+
+        public Nerve(String logPath_)
+        {
+            InitNerve();
+            this.logPath = logPath_;
+        }
+
+        void InitNerve()
+        {
+            synchro = new NerveSynchro();
+
             world = new World();
 
             client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -44,29 +57,27 @@ namespace Nerve
 
         public void Connect(String server, Int32 port, Int32 portUdp)
         {
+            NetworkStream stream = null;
+
             try
             {
                 client.Connect(server, port);
                 stream = new NetworkStream(client);
 
                 clientUpd.Connect(server, portUdp);
-                streamUpd = new NetworkStream(clientUpd);
 
                 Thread thread = new Thread(new ParameterizedThreadStart(UpdateService));
-                try
-                {
-                    thread.Start();
-                }
-                catch (Exception e)
-                {
-                    thread.Abort();
-                    Log(String.Format("Exception: {0}", e.Message));
-                }
+                thread.Start((object)clientUpd); //don`t check in try/catch. This is useless
 
                 String message = Read(stream);
                 Log(String.Format("Received: {0}", message));
 
+                synchro.WaitAll();
+                //lock all
+                synchro.ResetAll();
                 InitWorld(message, separator);
+                synchro.SetAll();
+                //unlock all
 
                 string[] parseData;
 
@@ -101,8 +112,13 @@ namespace Nerve
                             WriteByte(stream, command);
                             Log(String.Format("Sent command: {0}", DecryptCommand(command)));
 
+                            synchro.WaitOne(GroupLock.shipsLock);
+                            //lock shipsLock
+                            synchro.Reset(GroupLock.shipsLock);
                             message = Console.ReadLine();
                             message += separator + Console.ReadLine();
+                            synchro.Set(GroupLock.shipsLock);
+                            //unlock shipsLock
 
                             Write(stream, message);
                             Log(String.Format("Sent: {0}", message));
@@ -111,7 +127,13 @@ namespace Nerve
 
                             double x = Convert.ToDouble(parseData[0]);
                             double y = Convert.ToDouble(parseData[1]);
-                            world.Ships[world.myId].Pos = new Point(x, y);
+
+                            synchro.WaitOne(GroupLock.shipsLock);
+                            //lock shipLock
+                            synchro.Reset(GroupLock.shipsLock);
+                            world.Ships[world.MyId].Move(new Point(x, y));
+                            synchro.Set(GroupLock.shipsLock);
+                            //unlock shipLock
 
                             break;
                         case angchange:
@@ -123,20 +145,42 @@ namespace Nerve
                             WriteByte(stream, command);
                             Log(String.Format("Sent command: {0}", DecryptCommand(command)));
 
+                            synchro.WaitOne(GroupLock.shipsLock);
+                            //lock shipLock
+                            synchro.Reset(GroupLock.shipsLock);
                             message = Console.ReadLine();
+                            synchro.Set(GroupLock.shipsLock);
+                            //unlock shipLock
 
                             Write(stream, message);
                             Log(String.Format("Sent: {0}", message));
 
                             int angle = Convert.ToInt32(message);
-                            world.Ships[world.myId].Angle = angle;
+
+                            synchro.WaitOne(GroupLock.shipsLock);
+                            //lock shipLock
+                            synchro.Reset(GroupLock.shipsLock);
+                            world.Ships[world.MyId].Turn(angle);
+                            synchro.Set(GroupLock.shipsLock);
+                            //unlock shipLock
 
                             break;
                         case shot:
                             if (world.gameOver)
                             {
-                                continue; // in AS3 function return;
+                                continue; // in AS3 function event return;
                             }
+
+                            synchro.WaitOne(GroupLock.shipsLock);
+                            //lock shipsLock
+                            synchro.Reset(GroupLock.shipsLock);
+                            if (!world.Ships[world.MyId].Gun.Ready())
+                            {
+                                Log(String.Format("Gun isn`t ready for fire"));
+                                continue; // in AS3 function event return;
+                            }
+                            synchro.Set(GroupLock.shipsLock);
+                            //unlock shipsLock
 
                             WriteByte(stream, command);
                             Log(String.Format("Sent command: {0}", DecryptCommand(command)));
@@ -155,17 +199,28 @@ namespace Nerve
 
                             Bullet bullet = new Bullet(id, new Point(bulletX, bulletY), bulletAngle,
                                 bulletSpeed, bulletAngularSpeed, new Health(), unused);
-                            world.OwnBullets.Add(id, bullet);
+
+                            synchro.WaitOne(GroupLock.ownBulletsLock);
+                            //lock ownBulletsLock
+                            synchro.Reset(GroupLock.ownBulletsLock);
+                            world.ShotOwn(id, bullet);
+                            synchro.Set(GroupLock.ownBulletsLock);
+                            //unlock ownBulletsLock
 
                             break;
                         case hit:
                             WriteByte(stream, command);
                             Log(String.Format("Sent command: {0}", DecryptCommand(command)));
 
+                            synchro.WaitOne(GroupLock.ownBulletsLock);
+                            //lock ownBulletsLock
+                            synchro.Reset(GroupLock.ownBulletsLock);
                             int bulletId = Convert.ToInt32(Console.ReadLine()); // loop ownBullets
                             int burnObjectId = Convert.ToInt32(Console.ReadLine()); // abroad == -1 (borderId)
 
-                            world.OwnBullets.Remove(bulletId);
+                            world.UseBullet(bulletId);
+                            synchro.Set(GroupLock.ownBulletsLock);
+                            //unlock ownBulletsLock
 
                             message = bulletId.ToString() + separator + burnObjectId;
 
@@ -182,7 +237,12 @@ namespace Nerve
                             WriteByte(stream, command);
                             Log(String.Format("Sent command: {0}", DecryptCommand(command)));
 
+                            synchro.WaitOne(GroupLock.asteroidsLock);
+                            //lock asteroidsLock
+                            synchro.Reset(GroupLock.asteroidsLock);
                             int asteroidId = Convert.ToInt32(Console.ReadLine()); // abroad == -1
+                            synchro.Set(GroupLock.asteroidsLock);
+                            //unlock asteroidsLock
 
                             message = asteroidId.ToString();
 
@@ -194,19 +254,26 @@ namespace Nerve
                             WriteByte(stream, command);
                             Log(String.Format("Sent command: {0}", DecryptCommand(command)));
 
-                            world.Ships.Remove(world.myId);
+                            synchro.WaitOne(GroupLock.shipsLock);
+                            //lock shipsLock
+                            synchro.Reset(GroupLock.shipsLock);
+                            world.ExplodeShip(world.MyId);
+                            synchro.Set(GroupLock.shipsLock);
+                            //unlock shipsLock
 
+                            synchro.WaitOne(GroupLock.ownBulletsLock);
+                            //lock ownBulletsLock
+                            synchro.Reset(GroupLock.ownBulletsLock);
                             message = world.OwnBullets.Count.ToString();
                             foreach (var ownBulletId in world.OwnBullets.Keys)
                             {
                                 message += separator + ownBulletId;
                             }
+                            synchro.Set(GroupLock.ownBulletsLock);
+                            //unlock ownBulletsLock
 
                             Write(stream, message);
                             Log(String.Format("Sent: {0}", message));
-
-                            streamUpd.Close();
-                            clientUpd.Close();
 
                             return;
                         default:
@@ -241,8 +308,12 @@ namespace Nerve
 
         void UpdateService(Object clientUpdObj)
         {
+            NetworkStream streamUpd = null;
+
             try
             {
+                streamUpd = new NetworkStream((Socket)clientUpdObj);
+
                 Log("Upd socket Connected!");
 
                 while (true)
@@ -265,8 +336,12 @@ namespace Nerve
                                 double x = Convert.ToDouble(parseData[1]);
                                 double y = Convert.ToDouble(parseData[2]);
 
-                                world.Ships[id].Pos.x = x;
-                                world.Ships[id].Pos.y = y;
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.Ships[id].Move(new Point(x, y));
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
 
                                 break;
                             }
@@ -280,7 +355,12 @@ namespace Nerve
                                 int id = Convert.ToInt32(parseData[0]);
                                 int angle = Convert.ToInt32(parseData[1]);
 
-                                world.Ships[id].Angle = angle;
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.Ships[id].Turn(angle);
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
 
                                 break;
                             }
@@ -299,7 +379,13 @@ namespace Nerve
                                 double angularSpeed = Convert.ToDouble(parseData[5]);
 
                                 Bullet bullet = new Bullet(new Point(x, y), angle, speed, angularSpeed, new Health(), unused);
-                                world.AlienBullets.Add(id, bullet);
+
+                                synchro.WaitOne(GroupLock.alienBulletsLock);
+                                //lock alienBulletsLock
+                                synchro.Reset(GroupLock.alienBulletsLock);
+                                world.ShotAlien(id, bullet);
+                                synchro.Set(GroupLock.alienBulletsLock);
+                                //unlock alienBulletsLock
 
                                 break;
                             }
@@ -316,25 +402,41 @@ namespace Nerve
 
                                 if (objectDestroyed)
                                 {
-                                    if (world.Ships.ContainsKey(burnObjectId))
+                                    //lock shipsLock
+                                    //lock asteroidsLock
+                                    synchro.WaitOne(GroupLock.shipsLock);
+                                    synchro.Reset(GroupLock.shipsLock);
+                                    synchro.WaitOne(GroupLock.asteroidsLock);
+                                    synchro.Reset(GroupLock.asteroidsLock);
+                                    if(world.IsShip(burnObjectId))
                                     {
-                                        if (burnObjectId == world.myId)
+                                        if(world.IsMyShip(burnObjectId))
                                         {
                                             world.gameOver = true;
                                             Log("GAME OVER");
                                         }
-                                        world.Ships.Remove(burnObjectId);
+
+                                        world.ExplodeShip(burnObjectId);
                                     }
-                                    else if (world.Asteroids.ContainsKey(burnObjectId))
+                                    else if (world.IsAsteroid(burnObjectId))
                                     {
-                                        world.Asteroids.Remove(burnObjectId);
+                                        world.CrushAsteroid(burnObjectId, 0);
                                     }
+                                    synchro.Set(GroupLock.shipsLock);
+                                    synchro.Set(GroupLock.asteroidsLock);
+                                    //unlock shipsLock
+                                    //unlock asteroidLock
                                 }
 
-                                if (world.AlienBullets.ContainsKey(bulletId))
+                                synchro.WaitOne(GroupLock.alienBulletsLock);
+                                //lock alienBulletsLock
+                                synchro.Reset(GroupLock.alienBulletsLock);
+                                if (world.IsAlienBullet(bulletId))
                                 {
-                                    world.AlienBullets.Remove(bulletId);
+                                    world.UseBullet(bulletId);
                                 }
+                                synchro.Set(GroupLock.alienBulletsLock);
+                                //unlock alienBulletsLock
 
                                 break;
                             }
@@ -349,17 +451,27 @@ namespace Nerve
                                 int asteroidId = Convert.ToInt32(parseData[1]);
                                 bool objectDestroyed = Convert.ToBoolean(Convert.ToByte(parseData[2]));
 
-                                world.Asteroids.Remove(asteroidId);
+                                synchro.WaitOne(GroupLock.asteroidsLock);
+                                //lock asteroidsLock
+                                synchro.Reset(GroupLock.asteroidsLock);
+                                world.CrushAsteroid(asteroidId, 0);
+                                synchro.Set(GroupLock.asteroidsLock);
+                                //unlock asteroidsLock
 
                                 if (objectDestroyed)
                                 {
-                                    if (shipId == world.myId)
+                                    if (world.IsMyShip(shipId))
                                     {
                                         world.gameOver = true;
                                         Log("GAME OVER");
                                     }
 
-                                    world.Ships.Remove(shipId);
+                                    synchro.WaitOne(GroupLock.shipsLock);
+                                    //lock shipsLock
+                                    synchro.Reset(GroupLock.shipsLock);
+                                    world.ExplodeShip(shipId);
+                                    synchro.Set(GroupLock.shipsLock);
+                                    //unlock shipsLock
                                 }
 
                                 break;
@@ -374,13 +486,28 @@ namespace Nerve
                                 int shipId = Convert.ToInt32(parseData[0]);
                                 int count = Convert.ToInt32(parseData[1]);
 
-                                world.Ships.Remove(shipId);
+                                if (world.IsMyShip(shipId))
+                                {
+                                    return;
+                                }
 
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.ExplodeShip(shipId);
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
+
+                                synchro.WaitOne(GroupLock.alienBulletsLock);
+                                //lock alienLock
+                                synchro.Reset(GroupLock.alienBulletsLock);
                                 for (int i = 2; count-- > 0; ++i)
                                 {
                                     int bulletId = Convert.ToInt32(parseData[i]);
-                                    world.AlienBullets.Remove(bulletId);
+                                    world.UseBullet(bulletId);
                                 }
+                                synchro.Set(GroupLock.alienBulletsLock);
+                                //unlock alienLock
 
                                 break;
                             }
@@ -401,8 +528,15 @@ namespace Nerve
                                 double maxPoint = Convert.ToDouble(parseData[7]);
                                 double prepareTime = Convert.ToDouble(parseData[8]);*/
 
-                                world.Ships.Add(id, new SpaceShip(id, new Point(x, y), angle,
-                                    unused, unused, new Health(), new Gun(new Health())));
+                                SpaceShip ship = new SpaceShip(id, new Point(x, y), angle,
+                                    unused, unused, new Health(), new Gun(new Health()));
+
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.AddShip(id, ship);
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
 
                                 break;
                             }
@@ -430,6 +564,85 @@ namespace Nerve
             }
 
             return;
+        }
+
+        void InitWorld(String data, String separator)
+        {
+            string[] parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
+
+            int i = 0;
+            world.MyId = Convert.ToInt32(parseData[i++]);
+            double myX = Convert.ToDouble(parseData[i++]);
+            double myY = Convert.ToDouble(parseData[i++]);
+            int myAngle = Convert.ToInt32(parseData[i++]);
+            double mySpeed = Convert.ToDouble(parseData[i++]);
+            double myAngularSpeed = Convert.ToDouble(parseData[i++]);
+
+            SpaceShip ship = new SpaceShip(world.MyId, new Point(myX, myY), myAngle, mySpeed, myAngularSpeed,
+                new Health(), new Gun(new Health(0, 0)));
+            world.AddShip(world.MyId, ship);
+
+            int countShips = Convert.ToInt32(parseData[i++]);
+            for (; countShips-- > 0; i += 4)
+            {
+                int id = Convert.ToInt32(parseData[i]);
+                double x = Convert.ToDouble(parseData[i + 1]);
+                double y = Convert.ToDouble(parseData[i + 2]);
+                int angle = Convert.ToInt32(parseData[i + 3]);
+
+                SpaceShip alienShip = new SpaceShip(id, new Point(x, y), angle,
+                    unused, unused, new Health(), new Gun(new Health()));
+                world.AddShip(id, alienShip);
+            }
+
+            int countAsteroids = Convert.ToInt32(parseData[i++]);
+            for (; countAsteroids-- > 0; i += 7)
+            {
+                int id = Convert.ToInt32(parseData[i]);
+                double x = Convert.ToDouble(parseData[i + 1]);
+                double y = Convert.ToDouble(parseData[i + 2]);
+                int angle = Convert.ToInt32(parseData[i + 3]);
+                double speed = Convert.ToDouble(parseData[i + 4]);
+                double angularSpeed = Convert.ToDouble(parseData[i + 5]);
+                //double point = Convert.ToDouble(parseData[i + 6]);
+                //double maxPoint = Convert.ToDouble(parseData[i + 7]);
+                AsteroidType type = new AsteroidType();
+                switch (Convert.ToInt32(parseData[i + 6]))
+                {
+                    case 0:
+                        {
+                            type = AsteroidType.big;
+                            break;
+                        }
+                    case 1:
+                        {
+                            type = AsteroidType.medium;
+                            break;
+                        }
+                    case 2:
+                        {
+                            type = AsteroidType.small;
+                            break;
+                        }
+                }
+
+                Asteroid asteroid = new Asteroid(id, new Point(x, y), angle, speed, angularSpeed, new Health(), type);
+                world.OrganizeArmageddon(id, asteroid);
+            }
+
+            int countBullets = Convert.ToInt32(parseData[i++]);
+            for (; countBullets-- > 0; i += 6)
+            {
+                int id = Convert.ToInt32(parseData[i]);
+                double x = Convert.ToDouble(parseData[i + 1]);
+                double y = Convert.ToDouble(parseData[i + 2]);
+                int angle = Convert.ToInt32(parseData[i + 3]);
+                double speed = Convert.ToDouble(parseData[i + 4]);
+                double angularSpeed = Convert.ToDouble(parseData[i + 5]);
+
+                Bullet bullet = new Bullet(id, new Point(x, y), angle, speed, angularSpeed, new Health(), unused);
+                world.ShotAlien(id, bullet);
+            }
         }
 
         public static Byte GetCommand(String commandStr)
@@ -594,81 +807,6 @@ namespace Nerve
             {
                 stream.WriteByte(data);
                 stream.Flush();
-            }
-        }
-
-        void InitWorld(String data, String separator)
-        {
-            string[] parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
-
-            int i = 0;
-            world.myId = Convert.ToInt32(parseData[i++]);
-            double myX = Convert.ToDouble(parseData[i++]);
-            double myY = Convert.ToDouble(parseData[i++]);
-            int myAngle = Convert.ToInt32(parseData[i++]);
-            double mySpeed = Convert.ToDouble(parseData[i++]);
-            double myAngularSpeed = Convert.ToDouble(parseData[i++]);
-
-            world.Ships.Add(world.myId, new SpaceShip(world.myId, new Point(myX, myY), myAngle, mySpeed, myAngularSpeed,
-                new Health(), new Gun(new Health())));
-
-            int countShips = Convert.ToInt32(parseData[i++]);
-            for (; (countShips--) > 0; i += 4)
-            {
-                int id = Convert.ToInt32(parseData[i]);
-                double x = Convert.ToDouble(parseData[i + 1]);
-                double y = Convert.ToDouble(parseData[i + 2]);
-                int angle = Convert.ToInt32(parseData[i + 3]);
-
-                world.Ships.Add(id, new SpaceShip(id, new Point(x, y), angle,
-                    unused, unused, new Health(), new Gun(new Health())));
-            }
-
-            int countAsteroids = Convert.ToInt32(parseData[i++]);
-            for (; (countAsteroids--) > 0; i += 7)
-            {
-                int id = Convert.ToInt32(parseData[i]);
-                double x = Convert.ToDouble(parseData[i + 1]);
-                double y = Convert.ToDouble(parseData[i + 2]);
-                int angle = Convert.ToInt32(parseData[i + 3]);
-                double speed = Convert.ToDouble(parseData[i + 4]);
-                double angularSpeed = Convert.ToDouble(parseData[i + 5]);
-                //double point = Convert.ToDouble(parseData[i + 6]);
-                //double maxPoint = Convert.ToDouble(parseData[i + 7]);
-                AsteroidType type = new AsteroidType();
-                switch (Convert.ToInt32(parseData[i + 6]))
-                {
-                    case 0:
-                        {
-                            type = AsteroidType.big;
-                            break;
-                        }
-                    case 1:
-                        {
-                            type = AsteroidType.medium;
-                            break;
-                        }
-                    case 2:
-                        {
-                            type = AsteroidType.small;
-                            break;
-                        }
-                }
-
-                world.Asteroids.Add(id, new Asteroid(id, new Point(x, y), angle, speed, angularSpeed, new Health(), type));
-            }
-
-            int countBullets = Convert.ToInt32(parseData[i++]);
-            for (; (countBullets--) > 0; i += 6)
-            {
-                int id = Convert.ToInt32(parseData[i]);
-                double x = Convert.ToDouble(parseData[i + 1]);
-                double y = Convert.ToDouble(parseData[i + 2]);
-                int angle = Convert.ToInt32(parseData[i + 3]);
-                double speed = Convert.ToDouble(parseData[i + 4]);
-                double angularSpeed = Convert.ToDouble(parseData[i + 5]);
-
-                world.AlienBullets.Add(id, new Bullet(id, new Point(x, y), angle, speed, angularSpeed, new Health(), unused));
             }
         }
     }
