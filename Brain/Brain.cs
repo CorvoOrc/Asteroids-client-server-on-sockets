@@ -1,4 +1,12 @@
-﻿using System;
+/*Steshenko Alexander*/
+
+/*
+Server(Brain) handled commands, sent from client(Nerve)
+For more information:
+https://github.com/CorvoOrc/Asteroids-client-server-on-sockets/blob/master/README.md
+*/
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,10 +20,12 @@ namespace Brain
 {
     class Brain
     {
+        BrainSynchro synchro = null;
+
         World world = null;
 
         Dictionary<Socket, KeyValuePair<Socket, NetworkStream>> nerves = null;
-        Dictionary<SpaceShip, Socket> shipSocketDict = null;
+        Dictionary<SpaceShip, Socket> shipSocketBind = null;
 
         Socket server = null;
         Socket broadcast = null;
@@ -45,82 +55,55 @@ namespace Brain
 
         public Brain(int port_)
         {
-            world = new World();
+            //address = address_; // listen
+            this.port = port_;
+            this.portBroad = port + 10;
 
-            //address = address_;
-            port = port_;
-            portBroad = port + 10;
-            backlog = 50;
-            sleepTime = 50;
+            InitBrain();
 
-            separator = separatorDefault;
-            logPath = logPathDefault;
-
-            /*policy =
-@"<?xml version=""1.0""?>
-<cross-domain-policy>
-    <site-control permitted-cross-domain-policies=""master-only\""/>
-    <allow-access-from domain=""" + address + @""" to-ports=""10000-15000, 843""/>
-</cross-domain-policy>";*/
-
-            nerves = new Dictionary<Socket, KeyValuePair<Socket, NetworkStream>>();
-            shipSocketDict = new Dictionary<SpaceShip, Socket>();
-
-            server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            broadcast = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-            server.Bind(new IPEndPoint(IPAddress.Any, port));
-            server.Listen(backlog);
-
-            broadcast.Bind(new IPEndPoint(IPAddress.Any, portBroad));
-            broadcast.Listen(backlog);
+            this.separator = separatorDefault;
+            this.logPath = logPathDefault;
         }
 
         public Brain(int port_, String separator_)
         {
-            world = new World();
+            //address = address_; // listen
+            this.port = port_;
+            this.portBroad = port + 10;
 
-            //address = address_;
-            port = port_;
-            portBroad = port + 10;
-            backlog = 50;
-            sleepTime = 50;
+            InitBrain();
 
-            separator = separator_;
-            logPath = logPathDefault;
-
-            /*policy =
-@"<?xml version=""1.0""?>
-<cross-domain-policy>
-    <site-control permitted-cross-domain-policies=""master-only\""/>
-    <allow-access-from domain=""" + address + @""" to-ports=""10000-15000, 843""/>
-</cross-domain-policy>";*/
-
-            nerves = new Dictionary<Socket, KeyValuePair<Socket, NetworkStream>>();
-            shipSocketDict = new Dictionary<SpaceShip, Socket>();
-
-            server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            broadcast = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-            server.Bind(new IPEndPoint(IPAddress.Any, port));
-            server.Listen(backlog);
-
-            broadcast.Bind(new IPEndPoint(IPAddress.Any, portBroad));
-            broadcast.Listen(backlog);
+            this.separator = separator_;
+            this.logPath = logPathDefault;
         }
 
         public Brain(int port_, String separator_, String logPath_)
         {
-            world = new World();
+            //address = address_; // listen
+            this.port = port_;
+            this.portBroad = port + 10;
 
-            //address = address_;
-            port = port_;
-            portBroad = port + 10;
-            backlog = 50;
-            sleepTime = 50;
+            InitBrain();
 
-            separator = separator_;
-            logPath = logPath_;
+            this.separator = separator_;
+            this.logPath = logPath_;
+        }
+
+        private void InitBrain()
+        {
+            try
+            {
+                BrainSingleton.TryCheck();
+            }
+            catch (Exception e)
+            {
+                throw new Exception(e.Message);
+            }
+
+            this.world = new World();
+
+            this.backlog = 50;
+            this.sleepTime = 50;
 
             /*policy =
 @"<?xml version=""1.0""?>
@@ -129,17 +112,19 @@ namespace Brain
     <allow-access-from domain=""" + address + @""" to-ports=""10000-15000, 843""/>
 </cross-domain-policy>";*/
 
-            nerves = new Dictionary<Socket, KeyValuePair<Socket, NetworkStream>>();
-            shipSocketDict = new Dictionary<SpaceShip, Socket>();
+            this.nerves = new Dictionary<Socket, KeyValuePair<Socket, NetworkStream>>();
+            this.shipSocketBind = new Dictionary<SpaceShip, Socket>();
 
-            server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            broadcast = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            this.server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            this.broadcast = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
-            server.Bind(new IPEndPoint(IPAddress.Any, port));
-            server.Listen(backlog);
+            this.server.Bind(new IPEndPoint(IPAddress.Any, port));
+            this.server.Listen(backlog);
 
-            broadcast.Bind(new IPEndPoint(IPAddress.Any, portBroad));
-            broadcast.Listen(backlog);
+            this.broadcast.Bind(new IPEndPoint(IPAddress.Any, portBroad));
+            this.broadcast.Listen(backlog);
+
+            synchro = new BrainSynchro();
         }
 
         public void Dream()
@@ -156,19 +141,18 @@ namespace Brain
                     Socket sender = broadcast.Accept();
                     NetworkStream streamSender = new NetworkStream(sender);
                     //KeyValuePair<Socket, NetworkStream> pair = new KeyValuePair<Socket,NetworkStream>(sender, streamSender);
+
+                    synchro.WaitOne(GroupLock.nervesLock);
+                    //lock nervesLock
+                    synchro.Reset(GroupLock.nervesLock);
                     nerves.Add(client, new KeyValuePair<Socket, NetworkStream>(sender, streamSender));
+                    synchro.Set(GroupLock.nervesLock);
+                    //unlock nervesLock
 
                     Thread thread = new Thread(new ParameterizedThreadStart(Processing));
                     object clientObj = client as object;
 
-                    try
-                    {
-                        thread.Start(clientObj);
-                    }
-                    catch(Exception e)
-                    {
-                        Log(String.Format("Exception: {0}", e.Message));
-                    }
+                    thread.Start(clientObj); //don`t check in try/catch. This is useless
                 }
             }
             catch (SocketException e)
@@ -198,14 +182,18 @@ namespace Brain
             SpaceShip spaceShip = null;
             try
             {
+                synchro.WaitAll();                
+                //lock all
+                synchro.ResetAll();
                 spaceShip = InitWorld(client, stream, newspace, separator);
-
-                shipSocketDict.Add(spaceShip, client);
-                world.Ships.Add(spaceShip.Id, spaceShip);
+                shipSocketBind.Add(spaceShip, client);
+                world.AddShip(spaceShip.Id, spaceShip);
+                synchro.SetAll();
+                //unlock all
             }
             catch (Exception e)
             {
-                throw new Exception(e.Message + "\nInit nerve is failed");
+                throw new Exception(e.Message + "\nInit world is failed");
             }
 
             try
@@ -231,188 +219,304 @@ namespace Brain
                     switch (command)
                     {
                         case sendtoall:
-                            data = Read(stream);
-                            Log(String.Format("Received: {0}", data));
+                            {
+                                data = Read(stream);
+                                Log(String.Format("Received: {0}", data));
 
-                            SendToAllApartSender(client, data);
-                            Log(String.Format("Received and SendToAllApartSender: {0}", data));
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAllApartSender(client, data);
+                                Log(String.Format("Received and SendToAllApartSender: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //unlock senttoallLock
 
-                            break;
+                                break;
+                            }
                         case poschange:
-                            data = Read(stream);
-                            Log(String.Format("Received: {0}", data));
+                            {
+                                data = Read(stream);
+                                Log(String.Format("Received: {0}", data));
 
-                            parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
+                                parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
 
-                            world.Ships[spaceShip.Id].Pos.x = Convert.ToDouble(parseData[0]);
-                            world.Ships[spaceShip.Id].Pos.y = Convert.ToDouble(parseData[1]);
+                                double x = Convert.ToDouble(parseData[0]);
+                                double y = Convert.ToDouble(parseData[1]);
 
-                            SendToAllApartSender(client, command);
-                            Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.Ships[spaceShip.Id].Move(new Point(x, y));
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
 
-                            data = spaceShip.Id + separator + data;
+                                data = spaceShip.Id + separator + data;
 
-                            SendToAllApartSender(client, data);
-                            Log(String.Format("SentToAllApartSender: {0}", data));
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAllApartSender(client, command);
+                                Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
 
-                            break;
+                                SendToAllApartSender(client, data);
+                                Log(String.Format("SentToAllApartSender: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //unlock sendtoallLock
+
+                                break;
+                            }
                         case angchange:
-                            data = Read(stream);
-                            Log(String.Format("Received: {0}", data));
+                            {
+                                data = Read(stream);
+                                Log(String.Format("Received: {0}", data));
 
-                            world.Ships[spaceShip.Id].Angle = Convert.ToInt32(data);
+                                int angle = Convert.ToInt32(data);
 
-                            SendToAllApartSender(client, command);
-                            Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.Ships[spaceShip.Id].Turn(angle);
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
 
-                            data = spaceShip.Id + separator + data;
+                                data = spaceShip.Id + separator + data;
 
-                            SendToAllApartSender(client, data);
-                            Log(String.Format("SentToAllApartSender: {0}", data));
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAllApartSender(client, command);
+                                Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
 
-                            break;
+                                SendToAllApartSender(client, data);
+                                Log(String.Format("SentToAllApartSender: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+
+                                break;
+                            }
                         case shot:
-                            double bulletSpeed = 20.0;
-                            double bulletAngularSpeed = 3.0;
-                            double bulletDamage = 21.0;
+                            {
+                                double bulletSpeed = 20.0;
+                                double bulletAngularSpeed = 3.0;
+                                double bulletDamage = 21.0;
 
-                            Bullet bullet = new Bullet(spaceShip.Pos, spaceShip.Angle, bulletSpeed,
-                                bulletAngularSpeed, new Health(), bulletDamage);
-                            world.Bullets.Add(bullet.Id, bullet);
+                                Bullet bullet = new Bullet(spaceShip.Pos, spaceShip.Angle, bulletSpeed,
+                                    bulletAngularSpeed, new Health(), bulletDamage);
 
-                            data = bullet.ToString(separator);
+                                synchro.WaitOne(GroupLock.bulletsLock);
+                                //lock bulletsLock
+                                synchro.Reset(GroupLock.bulletsLock);
+                                world.Shot(bullet.Id, spaceShip.Id, bullet);
+                                synchro.Set(GroupLock.bulletsLock);
+                                //unlock bulletsLock
 
-                            Write(stream, data);
-                            Log(String.Format("Sent: {0}", data));
+                                data = bullet.ToString(separator);
 
-                            SendToAllApartSender(client, command);
-                            Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
+                                Write(stream, data);
+                                Log(String.Format("Sent: {0}", data));
 
-                            SendToAllApartSender(client, data);
-                            Log(String.Format("SentToAllApartSender: {0}", data));
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAllApartSender(client, command);
+                                Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
 
-                            break;
+                                SendToAllApartSender(client, data);
+                                Log(String.Format("SentToAllApartSender: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //unlock sendtoallLock
+
+                                break;
+                            }
                         case hit:
-                            data = Read(stream);
-                            Log(String.Format("Received: {0}", data));
-
-                            parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
-
-                            int bulletId = Convert.ToInt32(parseData[0]);
-                            int burnObjectId = Convert.ToInt32(parseData[1]);
-
-                            if (!world.Bullets.ContainsKey(bulletId) || burnObjectId != -1
-                                && !world.Ships.ContainsKey(burnObjectId) && !world.Asteroids.ContainsKey(burnObjectId))
                             {
-                                continue;
-                            }
+                                data = Read(stream);
+                                Log(String.Format("Received: {0}", data));
 
-                            SendToAll(command);
-                            Log(String.Format("SentToAll command: {0}", DecryptCommand(command)));
+                                parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
 
-                            data += separator;
+                                int bulletId = Convert.ToInt32(parseData[0]);
+                                int burnObjectId = Convert.ToInt32(parseData[1]);
 
-                            if (burnObjectId != World.borderId)
-                            {
-                                if (world.Ships.ContainsKey(burnObjectId))
+                                synchro.WaitOne(GroupLock.bulletsLock);
+                                //lock bulletsLock
+                                synchro.Reset(GroupLock.bulletsLock);
+                                if (!world.IsActuallyExist(bulletId, burnObjectId) || !world.IsBulletOwner(bulletId, spaceShip.Id))
                                 {
-                                    world.Ships[burnObjectId].Health.Point -= world.Bullets[bulletId].Damage;
-
-                                    if (world.Ships[burnObjectId].Health.Point <= 0)
-                                    {
-                                        data += World.objectDestroyed;
-                                        world.Ships.Remove(burnObjectId);
-                                    }
-                                    else
-                                    {
-                                        data += World.objectSurvived;
-                                    }
+                                    synchro.Set(GroupLock.bulletsLock);
+                                    continue;
                                 }
-                                else if (world.Asteroids.ContainsKey(burnObjectId))
+                                synchro.Set(GroupLock.bulletsLock);
+                                //unlock bulletsLock
+
+                                data += separator;
+
+                                if (!world.IsBorder(burnObjectId))
                                 {
-                                    world.Asteroids[burnObjectId].Health.Point -= world.Bullets[bulletId].Damage;
+                                    double damage = world.Bullets[bulletId].Damage;
 
-                                    if (world.Asteroids[burnObjectId].Health.Point <= 0)
+                                    synchro.WaitOne(GroupLock.shipsLock);
+                                    synchro.Reset(GroupLock.shipsLock);
+                                    synchro.WaitOne(GroupLock.asteroidsLock);
+                                    synchro.Reset(GroupLock.asteroidsLock);
+                                    //lock shipsLock
+                                    //lock asteroidLock
+                                    if (world.IsShip(burnObjectId))
                                     {
-                                        data += World.objectDestroyed;
-                                        world.Asteroids.Remove(burnObjectId);
+                                        world.HarmShip(burnObjectId, damage);
+
+                                        if (world.Ships[burnObjectId].Health.isDead())
+                                        {
+                                            data += World.objectDestroyed;
+                                            world.ExplodeShip(burnObjectId);
+                                        }
+                                        else
+                                        {
+                                            data += World.objectSurvived;
+                                        }
                                     }
-                                    else
+                                    else if (world.IsAsteroid(burnObjectId))
                                     {
-                                        data += World.objectSurvived;
+                                        world.HarmShip(burnObjectId, damage);
+
+                                        if (world.Asteroids[burnObjectId].Health.isDead())
+                                        {
+                                            data += World.objectDestroyed;
+                                            world.CrushAsteroid(burnObjectId, 0);
+                                        }
+                                        else
+                                        {
+                                            data += World.objectSurvived;
+                                        }
                                     }
+                                    synchro.Set(GroupLock.shipsLock);
+                                    synchro.Set(GroupLock.asteroidsLock);
+                                    //unlock shipsLock
+                                    //unlock asteroidLock
                                 }
+
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAll(command);
+                                Log(String.Format("SentToAll command: {0}", DecryptCommand(command)));
+
+                                SendToAll(data);
+                                Log(String.Format("SentToAll: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //unlock sendtoallLock
+
+                                synchro.WaitOne(GroupLock.bulletsLock);
+                                //lock bulletsLock
+                                synchro.Reset(GroupLock.bulletsLock);
+                                world.UseBullet(bulletId);
+                                synchro.Set(GroupLock.bulletsLock);
+                                //unlock bulletsLock
+
+                                break;
                             }
-
-                            SendToAll(data);
-                            Log(String.Format("SentToAll: {0}", data));
-
-                            world.Bullets.Remove(bulletId);
-
-                            break;
-                        case Brain.collision:
-                            data = Read(stream);
-                            Log(String.Format("Received: {0}", data));
-
-                            int asteroidId = Convert.ToInt32(data);
-
-                            if (!world.Asteroids.ContainsKey(asteroidId))
+                        case collision:
                             {
-                                continue;
+                                data = Read(stream);
+                                Log(String.Format("Received: {0}", data));
+
+                                int asteroidId = Convert.ToInt32(data);
+
+                                synchro.WaitOne(GroupLock.asteroidsLock);
+                                //lock asteroidLock
+                                synchro.Reset(GroupLock.asteroidsLock);
+                                if (!world.IsAsteroid(asteroidId))
+                                {
+                                    synchro.Set(GroupLock.asteroidsLock);
+                                    continue;
+                                }
+                                synchro.Set(GroupLock.asteroidsLock);
+                                //unlock asteroidLock
+
+                                data = spaceShip.Id.ToString() + separator + data + separator;
+
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                double decreaseCoef = 1.0 / 3.0;
+                                double damage = world.Ships[spaceShip.Id].Health.MaxPoint * decreaseCoef;
+                                world.HarmShip(spaceShip.Id, damage);
+
+                                if (world.Ships[spaceShip.Id].Health.isDead())
+                                {
+                                    data += World.objectDestroyed;
+                                    world.ExplodeShip(spaceShip.Id);
+                                }
+                                else
+                                {
+                                    data += World.objectSurvived;
+                                }
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
+
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAll(command);
+                                Log(String.Format("SentToAll command: {0}", DecryptCommand(command)));
+
+                                SendToAll(data);
+                                Log(String.Format("SentToAll: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //unlock sendtoallLock
+
+                                synchro.WaitOne(GroupLock.asteroidsLock);
+                                //lock asteroidLock
+                                synchro.Reset(GroupLock.asteroidsLock);
+                                world.CrushAsteroid(asteroidId, 0);
+                                synchro.Set(GroupLock.asteroidsLock);
+                                //unlock asteroidLock
+
+                                break;
                             }
-
-                            SendToAll(command);
-                            Log(String.Format("SentToAll command: {0}", DecryptCommand(command)));
-
-                            data = spaceShip.Id.ToString() + separator + data + separator;
-
-                            double decreaseCoef = 1.0 / 3.0;
-                            world.Ships[spaceShip.Id].Health.Point -= world.Ships[spaceShip.Id].Health.MaxPoint * decreaseCoef;
-
-                            if (world.Ships[spaceShip.Id].Health.Point <= 0)
-                            {
-                                data += World.objectDestroyed;
-                                world.Ships.Remove(spaceShip.Id);
-                            }
-                            else
-                            {
-                                data += World.objectSurvived;
-                            }
-
-                            SendToAll(data);
-                            Log(String.Format("SentToAll: {0}", data));
-
-                            world.Asteroids.Remove(asteroidId);
-
-                            break;
                         case close:
-                            data = Read(stream);
-                            Log(String.Format("Received: {0}", data));
-
-                            parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
-
-                            int count = Convert.ToInt32(parseData[0]);
-                            for (int i = 1; count-- > 0; ++i)
                             {
-                                int id = Convert.ToInt32(parseData[i]);
-                                world.Bullets.Remove(id);
+                                data = Read(stream);
+                                Log(String.Format("Received: {0}", data));
+
+                                parseData = data.Split(separator.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
+
+                                int count = Convert.ToInt32(parseData[0]);
+                                synchro.WaitOne(GroupLock.bulletsLock);
+                                //lock bulletsLock
+                                synchro.Reset(GroupLock.bulletsLock);
+                                for (int i = 1; count-- > 0; ++i)
+                                {
+                                    int id = Convert.ToInt32(parseData[i]);
+                                    world.UseBullet(id);
+                                }
+                                synchro.Set(GroupLock.bulletsLock);
+                                //unlock bulletsLock
+
+                                data = spaceShip.Id.ToString() + separator + data;
+
+                                synchro.WaitOne(GroupLock.sendtoallLock);
+                                //lock sendtoallLock
+                                synchro.Reset(GroupLock.sendtoallLock);
+                                SendToAll(command);
+                                Log(String.Format("SentToAll command: {0}", DecryptCommand(command)));
+
+                                SendToAll(data);
+                                Log(String.Format("SentToAll: {0}", data));
+                                synchro.Set(GroupLock.sendtoallLock);
+                                //unlock sendtoallLock
+
+                                synchro.WaitOne(GroupLock.shipsLock);
+                                //lock shipsLock
+                                synchro.Reset(GroupLock.shipsLock);
+                                world.ExplodeShip(spaceShip.Id);
+                                synchro.Set(GroupLock.shipsLock);
+                                //unlock shipsLock
+
+                                return;
                             }
-
-                            SendToAllApartSender(client, command);
-                            Log(String.Format("SentToAllApartSender command: {0}", DecryptCommand(command)));
-
-                            data = spaceShip.Id.ToString() + separator + data;
-
-                            SendToAllApartSender(client, data);
-                            Log(String.Format("SentToAllApartSender: {0}", data));
-
-                            world.Ships.Remove(spaceShip.Id);
-
-                            return;
                         default:
                             return;
-
-                        //break;
                     }
                 }
             }
@@ -430,25 +534,41 @@ namespace Brain
             }
             finally
             {
-                Log("\nThread terminated...");
-
                 nerves[client].Value.Close();
                 nerves[client].Key.Close();
 
+                synchro.WaitOne(GroupLock.nervesLock);
+                //lock nervesLock
+                synchro.Reset(GroupLock.nervesLock);
                 nerves.Remove(client);
+                synchro.Set(GroupLock.nervesLock);
+                //unlock nervesLock
+
+                synchro.WaitOne(GroupLock.shipsLock);
+                //lock shipsLock
+                synchro.Reset(GroupLock.shipsLock);
+                if (world.IsShip(spaceShip.Id))
+                {
+                    world.ExplodeShip(spaceShip.Id);
+                }
+                synchro.Set(GroupLock.shipsLock);
+                //unlock shipsLock
+
+                synchro.WaitOne(GroupLock.shipSocketBindLock);
+                //lock shipsSocketBindLock
+                synchro.Reset(GroupLock.shipSocketBindLock);
+                shipSocketBind.Remove(spaceShip);
+                synchro.Set(GroupLock.shipSocketBindLock);
+                //unlock shipsSocketBindLock
 
                 stream.Close();
                 client.Close();
 
-                if (world.Ships.ContainsKey(spaceShip.Id))
-                {
-                    world.Ships.Remove(spaceShip.Id);
-                }
-                shipSocketDict.Remove(spaceShip);
+                Log("\nThread terminated...");
             }
         }
 
-        private SpaceShip InitWorld(Socket nerve, NetworkStream stream, Byte command, String separator)
+        SpaceShip InitWorld(Socket nerve, NetworkStream stream, Byte command, String separator)
         {
             double shipX = 250.0;
             double shipY = 300.0;
