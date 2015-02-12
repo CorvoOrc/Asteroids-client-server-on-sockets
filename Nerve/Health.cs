@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -32,7 +32,7 @@ namespace Nerve
 
         public bool isDead()
         {
-            if (this.point == 0)
+            if (this.point <= 0)
                 return true;
 
             return false;
