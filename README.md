@@ -3,6 +3,10 @@
 Asteroids net game. Server (his name is Brain) written on C#, client (I call his Nerve) - ActionScript3, client for testing in console - C#.
 
 Client for testing is oriented on check work event function.
+
+Synchronization on Brain designed and implemented on EventWaitHandle(ManualResetMutex collection) and ManualResetMutex.
+Synchronization on Nerve designed and implemented on EventWaitHandle(ManualResetMutex collection).
+
 Event functions:
 - newspace (appearence new space ship)
 - sendtoall (send message to all nerve)
